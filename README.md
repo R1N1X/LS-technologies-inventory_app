@@ -51,7 +51,7 @@ A robust, offline-capable inventory management system built with Flutter. This a
 
 | Home Screen | Outward Scan | Inventory |
 |:-----------:|:------------:|:---------:|
-| *(Add Screenshot)* | *(Add Screenshot)* | *(Add Screenshot)* |
+|  |  |  |
 
 ## 🏁 Getting Started
 

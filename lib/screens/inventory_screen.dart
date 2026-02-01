@@ -508,11 +508,13 @@ class _ProductDetailModalState extends State<ProductDetailModal> {
                          _buildSectionHeader('All Reels (${_reels.length})', Icons.qr_code, const Color(0xFF2563EB)),
                          if (_reels.isEmpty)
                             const Padding(padding: EdgeInsets.all(16), child: Text("No reels found", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey))),
-                         ..._reels.map((reel) {
-                           // Parse reel index from QR data or infer loop index if sorted?
-                           // Just use the index in list for now if creating order is preserved.
-                           // Actually, let's just show loop index + 1 or parsing logic if we want to be exact.
-                           // The list order depends on DB query.
+                          ..._reels.map((reel) {
+                           // Parse reel number from qrCodeData (format: ShortID|ReelNumber)
+                           String reelNumber = '?';
+                           final parts = reel.qrCodeData.split('|');
+                           if (parts.length == 2) {
+                             reelNumber = parts[1];
+                           }
                            final isAvailable = reel.status == 'available';
                            return Container(
                              margin: const EdgeInsets.only(bottom: 12),
@@ -528,7 +530,7 @@ class _ProductDetailModalState extends State<ProductDetailModal> {
                                ]
                              ),
                              child: ListTile(
-                               title: Text('Reel', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+                               title: Text('Reel #$reelNumber', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
                                subtitle: Text('${reel.packingQuantity} pcs', style: GoogleFonts.inter(fontSize: 13, color: Colors.grey[600])),
                                trailing: Container(
                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),

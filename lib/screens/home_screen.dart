@@ -21,20 +21,15 @@ class HomeScreen extends StatelessWidget {
               width: double.infinity,
               child: Column(
                 children: [
-                  Image.asset(
-                    'assets/logo.png',
-                    height: 80, // Adjust size as needed
-                    fit: BoxFit.contain,
-                  ),
-                  const SizedBox(height: 16),
                   Text(
-                    'LS TECHNOLOGY',
+                    'LS TECHNOLOGIES',
                     style: GoogleFonts.inter(
-                      fontSize: 24,
+                      fontSize: 28,
                       fontWeight: FontWeight.bold,
                       color: const Color(0xFF1F2937),
                     ),
                   ),
+                  const SizedBox(height: 4),
                   Text(
                     'INVENTORY APP',
                      style: GoogleFonts.inter(

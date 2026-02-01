@@ -113,7 +113,7 @@ class _InwardScreenState extends State<InwardScreen> {
                 mainAxisAlignment: pw.MainAxisAlignment.start,
                 children: chunk.map((qrData) {
                   final parts = qrData.split('|');
-                  final reelNum = parts.length > 3 ? parts[3] : "?";
+                  final reelNum = parts.length == 2 ? parts[1] : "?";
                   
                   return pw.Container(
                     width: (85 * PdfPageFormat.mm) / 3, // Full slot width

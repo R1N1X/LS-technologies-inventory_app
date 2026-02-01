@@ -1,6 +1,7 @@
 
 class Product {
   final String? id;
+  final String shortId;  // 6-char alphanumeric for QR codes
   final String name;
   final int totalStock;
   final int packingQuantity;
@@ -10,6 +11,7 @@ class Product {
 
   Product({
     this.id,
+    required this.shortId,
     required this.name,
     required this.totalStock,
     required this.packingQuantity,
@@ -21,6 +23,7 @@ class Product {
   Map<String, dynamic> toMap() {
     return {
       'id': id,
+      'short_id': shortId,
       'name': name,
       'total_stock': totalStock,
       'packing_quantity': packingQuantity,
@@ -33,6 +36,7 @@ class Product {
   factory Product.fromMap(Map<String, dynamic> map) {
     return Product(
       id: map['id']?.toString(),
+      shortId: map['short_id'] ?? '',
       name: map['name'],
       totalStock: map['total_stock'],
       packingQuantity: map['packing_quantity'],

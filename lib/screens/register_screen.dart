@@ -40,6 +40,54 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return 0;
   }
 
+  void _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        backgroundColor: Colors.white,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEE2E2),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 48),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Error',
+              style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold, color: const Color(0xFFDC2626)),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              message,
+              style: GoogleFonts.inter(fontSize: 16, color: const Color(0xFF374151)),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        actions: [
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFDC2626),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: Text('OK', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _handleRegister() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -61,21 +109,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
         
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-             SnackBar(content: Text(result['message'])),
+             SnackBar(content: Text(result['message']), backgroundColor: Colors.green),
           );
         }
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: ${result['message']}')),
-          );
+          _showErrorDialog(result['message']);
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+        _showErrorDialog(e.toString());
       }
     } finally {
       setState(() => _loading = false);
@@ -122,7 +166,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 mainAxisAlignment: pw.MainAxisAlignment.start,
                 children: chunk.map((qrData) {
                   final parts = qrData.split('|');
-                  final reelNum = parts.length > 3 ? parts[3] : "?";
+                  final reelNum = parts.length == 2 ? parts[1] : "?";
                   
                   return pw.Container(
                     width: (85 * PdfPageFormat.mm) / 3,
@@ -398,7 +442,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           itemBuilder: (context, index) {
                             final qrData = _generatedQrCodes[index];
                             final parts = qrData.split('|');
-                            final reelNum = parts.length > 3 ? parts[3] : "?";
+                            final reelNum = parts.length == 2 ? parts[1] : "?";
  
                             final productName = _productNameController.text;
 

@@ -33,7 +33,8 @@ class DatabaseService {
         await db.execute('''
           CREATE TABLE products(
             id TEXT PRIMARY KEY,
-            name TEXT,
+            short_id TEXT,
+            name TEXT UNIQUE,
             total_stock INTEGER,
             packing_quantity INTEGER,
             created_date TEXT,
@@ -83,9 +84,28 @@ class DatabaseService {
 
   // --- Product Operations ---
 
+  // Generate a short 6-character alphanumeric ID
+  String _generateShortId() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    final random = DateTime.now().millisecondsSinceEpoch;
+    String result = '';
+    int seed = random;
+    for (int i = 0; i < 6; i++) {
+      result += chars[seed % chars.length];
+      seed = seed ~/ chars.length + (i + 1) * 7;
+    }
+    return result;
+  }
+
   Future<Map<String, dynamic>> createProduct(String name, int totalStock, int packingQuantity) async {
     final db = await database;
     try {
+      // Check for duplicate product name
+      final existing = await db.query('products', where: 'name = ?', whereArgs: [name]);
+      if (existing.isNotEmpty) {
+        return {"success": false, "message": "Product with name '$name' already exists"};
+      }
+
       // Calculate number of reels
       int numReels = totalStock ~/ packingQuantity;
       if (totalStock % packingQuantity > 0) {
@@ -94,9 +114,11 @@ class DatabaseService {
 
       final now = DateTime.now();
       final productId = _uuid.v4();
+      final shortId = _generateShortId();
 
       final product = Product(
         id: productId,
+        shortId: shortId,
         name: name,
         totalStock: totalStock,
         packingQuantity: packingQuantity,
@@ -121,15 +143,8 @@ class DatabaseService {
             reelQuantity = packingQuantity;
           }
 
-          // Generate QR Data
-          // Format: product_id|YYYY-MM-DD|quantity|reel_number
-          final dateFormat = DateFormat('yyyy-MM-dd');
-          String qrData = "$productId|${dateFormat.format(now)}|$reelQuantity|${i + 1}";
-          
-          // NOTE: In offline Flutter app, we will generate the QR Image/Widget on the UI side 
-          // based on the qrData. Storing base64 image in SQLite is inefficient.
-          // However, to keep model compatibility, we'll store specific indicator or empty string.
-          // The UI should generate it.
+          // NEW SIMPLIFIED QR FORMAT: ShortID|ReelNumber
+          String qrData = "$shortId|${i + 1}";
           String qrImage = ""; 
 
           final reel = Reel(
@@ -146,12 +161,13 @@ class DatabaseService {
 
           await txn.insert('reels', reel.toMap());
           reels.add(reel);
-          qrCodes.add(qrData); // Return data instead of image string for UI to render
+          qrCodes.add(qrData);
         }
 
         return {
           "success": true,
           "product_id": productId,
+          "short_id": shortId,
           "message": "Product created with $numReels reels",
           "reels": numReels,
           "qr_codes": qrCodes 
@@ -242,8 +258,8 @@ class DatabaseService {
            }
 
            final dateFormat = DateFormat('yyyy-MM-dd');
-           // Reel number logic: Existing total + i + 1
-           String qrData = "$productId|${dateFormat.format(now)}|$reelQuantity|${product.totalReels + i + 1}";
+           // NEW SIMPLIFIED QR FORMAT: ShortID|ReelNumber
+           String qrData = "${product.shortId}|${product.totalReels + i + 1}";
            String qrImage = "";
 
            final reel = Reel(
@@ -310,18 +326,67 @@ class DatabaseService {
 
   // --- Outward Operations ---
 
+  /// Validate a reel at scan time (for real-time feedback)
+  Future<Map<String, dynamic>> validateReel(String qrCodeData) async {
+    final db = await database;
+    try {
+      // Parse new format: ShortID|ReelNumber
+      final parts = qrCodeData.split('|');
+      if (parts.length != 2) {
+        return {"valid": false, "message": "Invalid QR code format"};
+      }
+
+      String shortId = parts[0];
+      int reelNum = int.tryParse(parts[1]) ?? 0;
+
+      // Find product by shortId
+      final productMaps = await db.query('products', where: 'short_id = ?', whereArgs: [shortId]);
+      if (productMaps.isEmpty) {
+        return {"valid": false, "message": "Product not found for this QR"};
+      }
+
+      final product = Product.fromMap(productMaps.first);
+
+      // Find Reel by qr_code_data
+      final reelMaps = await db.query(
+        'reels',
+        where: 'qr_code_data = ? AND status = ?',
+        whereArgs: [qrCodeData, 'available'],
+      );
+
+      if (reelMaps.isEmpty) {
+        return {"valid": false, "message": "Reel not found or already processed"};
+      }
+
+      final reel = Reel.fromMap(reelMaps.first);
+      return {
+        "valid": true,
+        "product": product,
+        "reel": reel,
+        "reelNumber": reelNum,
+      };
+    } catch (e) {
+      return {"valid": false, "message": e.toString()};
+    }
+  }
+
   Future<Map<String, dynamic>> processOutward(String qrCodeData, String invoiceNumber) async {
     final db = await database;
     try {
-      // Parse QR
+      // Parse new format: ShortID|ReelNumber
       final parts = qrCodeData.split('|');
-      if (parts.length != 4) {
+      if (parts.length != 2) {
         return {"success": false, "message": "Invalid QR code format"};
       }
 
-      String productId = parts[0];
-      String quantityStr = parts[2];
-      int quantity = int.parse(quantityStr);
+      String shortId = parts[0];
+
+      // Find product by shortId
+      final productMaps = await db.query('products', where: 'short_id = ?', whereArgs: [shortId]);
+      if (productMaps.isEmpty) {
+        return {"success": false, "message": "Product not found"};
+      }
+      final product = Product.fromMap(productMaps.first);
 
       // Find Reel
       final List<Map<String, dynamic>> reelMaps = await db.query(
@@ -341,10 +406,10 @@ class DatabaseService {
         final outwardRecord = OutwardRecord(
           id: _uuid.v4(),
           reelId: reel.id!,
-          productId: productId,
+          productId: product.id!,
           productName: reel.productName,
           invoiceNumber: invoiceNumber,
-          quantity: quantity,
+          quantity: reel.packingQuantity,
           outwardDate: DateTime.now(),
         );
 
@@ -359,19 +424,16 @@ class DatabaseService {
         );
 
         // Update Product Stats
-        // We need to fetch the current product state first to stay consistent, 
-        // OR we can just use raw SQL to decrement.
-        // Raw SQL is safer for concurrency (though not a huge issue here locally)
         await txn.rawUpdate('''
           UPDATE products 
           SET available_reels = available_reels - 1 
           WHERE id = ?
-        ''', [productId]);
+        ''', [product.id]);
 
         return {
           "success": true,
           "message": "Outward processed for ${reel.productName}",
-          "quantity": quantity,
+          "quantity": reel.packingQuantity,
           "invoice_number": invoiceNumber
         };
       });

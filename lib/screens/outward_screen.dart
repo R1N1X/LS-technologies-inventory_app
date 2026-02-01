@@ -6,6 +6,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:intl/intl.dart';
+import 'package:audioplayers/audioplayers.dart';
 import '../services/database_service.dart';
 import '../models/product.dart';
 
@@ -33,6 +34,7 @@ class _OutwardScreenState extends State<OutwardScreen> {
   final _poController = TextEditingController();
   final _customerController = TextEditingController();
   final MobileScannerController _scannerController = MobileScannerController();
+  final AudioPlayer _audioPlayer = AudioPlayer();
   
   final List<ScannedItem> _scannedItems = [];
   bool _processing = false;
@@ -46,7 +48,17 @@ class _OutwardScreenState extends State<OutwardScreen> {
     _poController.dispose();
     _customerController.dispose();
     _scannerController.dispose();
+    _audioPlayer.dispose();
     super.dispose();
+  }
+
+  Future<void> _playBeep() async {
+    try {
+      // Play beep from local asset file
+      await _audioPlayer.play(AssetSource('sounds/beep_2.mp3'));
+    } catch (e) {
+      // Ignore if beep fails
+    }
   }
 
   void _onDetect(BarcodeCapture capture) async {
@@ -56,45 +68,63 @@ class _OutwardScreenState extends State<OutwardScreen> {
     if (barcodes.isNotEmpty) {
       final code = barcodes.first.rawValue;
       if (code != null) {
-        // Prevent duplicates
+        // Prevent duplicates in current session
         if (_scannedItems.any((item) => item.qrData == code)) {
-           // Already added
-           return;
+          return;
         }
 
-        // Parse QR
-        final parts = code.split('|');
-        if (parts.isNotEmpty) {
-          final productId = parts[0];
-          // We need to fetch product info to verify and display
-          // Pause camera while fetching? Or just fetch async
-          // Better to pause to prevent rapid firing if logic is slow?
-          // MobileScanner fires rapidly.
-          
-          try {
-             // Check local list again before async call to be safe
-             if (_scannedItems.any((item) => item.qrData == code)) return;
+        // Temporarily set processing to avoid rapid duplicates
+        setState(() => _processing = true);
 
-             final product = await _db.getProduct(productId);
-             if (product != null) {
-               final reelNum = parts.length > 3 ? int.tryParse(parts[3]) ?? 0 : 0;
-               
-               if (mounted) {
-                 setState(() {
-                   _scannedItems.add(ScannedItem(
-                     qrData: code,
-                     product: product,
-                     reelNumber: reelNum
-                   ));
-                 });
-                 // Feedback
-                 ScaffoldMessenger.of(context).showSnackBar(
-                   SnackBar(content: Text('Added Reel #$reelNum of ${product.name}'), duration: const Duration(seconds: 1)),
-                 );
-               }
-             }
-          } catch (e) {
-            // Ignore parse errors or db errors for now
+        try {
+          // REAL-TIME VALIDATION using validateReel
+          final validation = await _db.validateReel(code);
+          
+          if (validation['valid'] == true) {
+            final Product product = validation['product'];
+            final int reelNum = validation['reelNumber'];
+            
+            if (mounted) {
+              // Play success beep
+              _playBeep();
+              
+              setState(() {
+                _scannedItems.add(ScannedItem(
+                  qrData: code,
+                  product: product,
+                  reelNumber: reelNum
+                ));
+              });
+              
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('✓ Added Reel #$reelNum of ${product.name}'),
+                  backgroundColor: Colors.green,
+                  duration: const Duration(seconds: 1),
+                ),
+              );
+            }
+          } else {
+            // Show error immediately at scan time (Item 6 requirement)
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('✗ ${validation['message']}'),
+                  backgroundColor: Colors.red,
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+            );
+          }
+        } finally {
+          if (mounted) {
+            setState(() => _processing = false);
           }
         }
       }
@@ -179,7 +209,7 @@ class _OutwardScreenState extends State<OutwardScreen> {
       final customer = _customerController.text.trim();
 
       // Label size: 85mm width x 32mm height (Landscape strip look)
-      final pageFormat = PdfPageFormat(85 * PdfPageFormat.mm, 32 * PdfPageFormat.mm, marginAll: 1 * PdfPageFormat.mm);
+      final pageFormat = PdfPageFormat(85 * PdfPageFormat.mm, 32 * PdfPageFormat.mm, marginAll: 2 * PdfPageFormat.mm);
 
       for (var item in _scannedItems) {
         doc.addPage(
@@ -187,55 +217,53 @@ class _OutwardScreenState extends State<OutwardScreen> {
             pageFormat: pageFormat,
             build: (context) {
               return pw.Row(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                crossAxisAlignment: pw.CrossAxisAlignment.center,
                 children: [
-                   // Left: QR
+                   // Left: QR Code
                    pw.Container(
-                     width: 30 * PdfPageFormat.mm,
-                     height: 30 * PdfPageFormat.mm,
+                     width: 26 * PdfPageFormat.mm,
+                     height: 26 * PdfPageFormat.mm,
                      alignment: pw.Alignment.center,
                      child: pw.BarcodeWidget(
                        data: item.qrData,
                        barcode: pw.Barcode.qrCode(),
-                       width: 28 * PdfPageFormat.mm,
-                       height: 28 * PdfPageFormat.mm,
+                       width: 24 * PdfPageFormat.mm,
+                       height: 24 * PdfPageFormat.mm,
                      ),
                    ),
-                   pw.SizedBox(width: 2 * PdfPageFormat.mm),
+                   pw.SizedBox(width: 3 * PdfPageFormat.mm),
                    
                    // Right: Details
                    pw.Expanded(
                      child: pw.Column(
                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                       mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                       mainAxisAlignment: pw.MainAxisAlignment.center,
                        children: [
+                         // Product Name
                          pw.Text(
                            item.product.name,
-                           style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
-                           maxLines: 2,
+                           style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
+                           maxLines: 1,
                            overflow: pw.TextOverflow.clip,
                          ),
-                         pw.Column(
-                           crossAxisAlignment: pw.CrossAxisAlignment.start,
-                           children: [
-                             pw.Text(
-                               "Reels: ${item.product.totalReels} | Reel #: ${item.reelNumber}",
-                               style: const pw.TextStyle(fontSize: 5),
-                             ),
-                             pw.Text(
-                               "Qty: ${item.product.totalStock} | SPQ: ${item.product.packingQuantity}",
-                               style: const pw.TextStyle(fontSize: 5),
-                             ),
-                           ],
-                         ),
-                         pw.Divider(thickness: 0.5, height: 2),
+                         pw.SizedBox(height: 2),
+                         // Reel Info
                          pw.Text(
-                           customer.isNotEmpty ? customer : "User",
-                           style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold),
+                           "Reel #${item.reelNumber} | Qty: ${item.product.packingQuantity}",
+                           style: const pw.TextStyle(fontSize: 7),
                          ),
+                         pw.SizedBox(height: 4),
+                         pw.Divider(thickness: 0.5, height: 1),
+                         pw.SizedBox(height: 2),
+                         // Customer
+                         pw.Text(
+                           customer.isNotEmpty ? customer : "Customer",
+                           style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
+                         ),
+                         // Invoice/PO
                          pw.Text(
                            "PO: $po | Inv: $invoice",
-                           style: pw.TextStyle(fontSize: 6, fontWeight: pw.FontWeight.bold),
+                           style: const pw.TextStyle(fontSize: 7),
                            maxLines: 1,
                            overflow: pw.TextOverflow.clip,
                          ),
